@@ -11,7 +11,7 @@ const RING_R = 950;             // center → question ring radius
 const RESP_D = 340;             // question → first response ring
 const RESP_STEP = 200;          // additional radius per overflow ring
 const PAD = 100;
-const SERVER_URL = import.meta.env.VITE_SERVER_URL || "http://localhost:3001";
+const SERVER_URL = "";
 
 // ── Edge helpers ──────────────────────────────────────────────────────────────
 function nodeSize(id) {

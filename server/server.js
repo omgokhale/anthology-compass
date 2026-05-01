@@ -1,7 +1,12 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const fs = require("fs");
+const path = require("path");
 const Anthropic = require("@anthropic-ai/sdk");
+
+const CACHE_DIR = path.join(__dirname, "cache");
+if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR);
 
 const app = express();
 app.use(cors());
@@ -159,7 +164,14 @@ app.get("/api/audio/highlight/:id", async (req, res) => {
 
 app.get("/api/catalog/:id", async (req, res) => {
     const catalogId = req.params.id;
-    const limit = parseInt(req.query.limit) || 120;  // cap for PoC performance
+    const limit = parseInt(req.query.limit) || 120;
+    const cacheFile = path.join(CACHE_DIR, `${catalogId}.json`);
+
+    // Return cached result instantly if available
+    if (fs.existsSync(cacheFile)) {
+        console.log(`[Cache] Serving catalog ${catalogId} from cache`);
+        return res.sendFile(cacheFile);
+    }
 
     try {
         console.log(`[Cortico] Fetching catalog ${catalogId}…`);
@@ -172,13 +184,13 @@ app.get("/api/catalog/:id", async (req, res) => {
 
         const tiles = await generateAllHeadlines(rawTiles);
 
-        res.json({
-            catalogId: catalog.id,
-            title: catalog.title,
-            questions,
-            tiles,
-            speakers,
-        });
+        const result = { catalogId: catalog.id, title: catalog.title, questions, tiles, speakers };
+
+        // Save to cache so future loads are instant
+        fs.writeFileSync(cacheFile, JSON.stringify(result));
+        console.log(`[Cache] Saved catalog ${catalogId} to cache`);
+
+        res.json(result);
     } catch (err) {
         console.error("[Error]", err.message);
         res.status(500).json({ error: err.message });
