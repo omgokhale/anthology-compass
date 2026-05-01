@@ -190,6 +190,7 @@ scripts/          (vestige of real-time era — safe to delete)
 - Speaker color assignment
 - Question nav bar (click to zoom-focus)
 - View toggle (Flowers / 2×2)
+- Audio playback: click any tile to play its original Cortico highlight audio clip; click again to stop. Server proxies audio via `GET /api/audio/highlight/:id` (keeps API key server-side). Playing tile gets a speaker-colored border ring.
 
 ### Next 🔨
 - **2×2 view**: axes TBD by user. The data is already loaded in `tiles` — just needs a scatter layout renderer in `App.jsx` when `mode === "2x2"`. Each axis will be a scored dimension per tile (score generation via Claude or manual coding).

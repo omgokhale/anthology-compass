@@ -141,6 +141,8 @@ export default function ConversationBloom() {
     const gRef = useRef(null);
     const zoomRef = useRef(null);
     const posRef = useRef({});
+    const audioRef = useRef(null);       // current Audio instance
+    const playingIdRef = useRef(null);   // ref mirror of playingId for D3 closures
 
     const [dims, setDims] = useState({ w: 1200, h: 800 });
     const [mode, setMode] = useState("setup");   // "setup" | "loading" | "flowers" | "2x2"
@@ -154,6 +156,7 @@ export default function ConversationBloom() {
     const [catalogTitle, setCatalogTitle] = useState("");
     const [activeQId, setActiveQId] = useState(null);
     const [hov, setHov] = useState(null);
+    const [playingId, setPlayingId] = useState(null);
 
     // ── Resize observer ───────────────────────────────────────────────────────
     useEffect(() => {
@@ -163,6 +166,10 @@ export default function ConversationBloom() {
         if (containerRef.current) ro.observe(containerRef.current);
         return () => ro.disconnect();
     }, []);
+
+    // Keep ref in sync for D3 closures; clean up audio on unmount
+    useEffect(() => { playingIdRef.current = playingId; }, [playingId]);
+    useEffect(() => () => { audioRef.current?.pause(); }, []);
 
     // ── D3 zoom setup ─────────────────────────────────────────────────────────
     useEffect(() => {
@@ -343,6 +350,22 @@ export default function ConversationBloom() {
 
         rEnt.on("mouseenter", (_, d) => setHov(d)).on("mouseleave", () => setHov(null));
 
+        rEnt.on("click", (event, d) => {
+            event.stopPropagation();
+            const highlightId = d.id.slice(1);  // strip "h" prefix
+            if (playingIdRef.current === d.id) {
+                audioRef.current?.pause();
+                setPlayingId(null);
+            } else {
+                if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
+                const audio = new Audio(`${SERVER_URL}/api/audio/highlight/${highlightId}`);
+                audioRef.current = audio;
+                audio.play().catch(() => {});
+                audio.onended = () => setPlayingId(null);
+                setPlayingId(d.id);
+            }
+        });
+
         // Drag
         const drag = d3.drag()
             .on("start", function () { d3.select(this).attr("cursor", "grabbing"); })
@@ -368,6 +391,18 @@ export default function ConversationBloom() {
             .style("opacity", 1).style("filter", "blur(0px)");
 
     }, [mode, questions, tiles, dims]);
+
+    // ── Playing indicator — update tile border without full D3 re-render ────────
+    useEffect(() => {
+        if (!gRef.current) return;
+        d3.select(gRef.current).selectAll("g.rn").each(function (d) {
+            const isPlaying = d.id === playingId;
+            d3.select(this).select("rect")
+                .attr("stroke", isPlaying ? (d.color || "#fff") : "none")
+                .attr("stroke-width", isPlaying ? 2 : 0)
+                .attr("stroke-opacity", isPlaying ? 0.9 : 0);
+        });
+    }, [playingId]);
 
     // ── Hover screen position ─────────────────────────────────────────────────
     const hovScreen = (() => {

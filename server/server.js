@@ -141,6 +141,22 @@ async function generateAllHeadlines(rawTiles, batchSize = 20, concurrency = 3) {
 
 app.get("/health", (_, res) => res.json({ ok: true }));
 
+// Proxy highlight audio — keeps the Cortico API key server-side
+app.get("/api/audio/highlight/:id", async (req, res) => {
+    try {
+        const audioRes = await fetch(`${CORTICO_BASE}/v1/highlights/${req.params.id}/audio`, {
+            headers: { Authorization: `Bearer ${process.env.CORTICO_API_KEY}` },
+        });
+        if (!audioRes.ok) return res.status(audioRes.status).json({ error: "Audio unavailable" });
+        const buffer = await audioRes.arrayBuffer();
+        res.set("Content-Type", audioRes.headers.get("content-type") || "audio/mpeg");
+        res.set("Cache-Control", "public, max-age=3600");
+        res.send(Buffer.from(buffer));
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 app.get("/api/catalog/:id", async (req, res) => {
     const catalogId = req.params.id;
     const limit = parseInt(req.query.limit) || 120;  // cap for PoC performance
