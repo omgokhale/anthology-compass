@@ -1,209 +1,178 @@
-# Conversation Bloom — Handoff (v2)
+# Anthology Realtime — Handoff
 
-## What This Is
-
-A conversation visualization tool. Given a Cortico catalog ID, the app fetches pre-curated speaker highlights, generates evocative tile headlines via Claude, and renders a blooming D3 network graph.
-
-Two visualization modes are planned:
-- **Flowers** — radial question-cluster layout (built)
-- **2×2** — scatter plot on user-defined axes (stub only, axes TBD)
+_Last updated: 2026-05-01 (session 2). User: ogo@media.mit.edu (MIT Media Lab)_
 
 ---
 
-## Architecture
+## What This Is
 
-```
-[Browser]
-  → enters Catalog ID on setup screen
-  → GET /api/catalog/:id
+A data visualization tool for Cortico conversation catalogs. Currently displays 516 audio highlights from catalog **1208** ("AMS 2025-26 Student Assembly" — school phone-policy discussion) as interactive dots on a 2-axis compass. Users hover to read transcripts and click to play audio.
 
-[Node.js Server]
-  → fetches catalog from Cortico API (GET /v1/catalogs/:id)
-  → extracts structural codes → questions
-  → reconstructs speaker text from word arrays
-  → sends batches of 20 highlights to Claude Sonnet for headline generation
-  → returns { catalogId, title, questions, tiles, speakers }
-
-[React Frontend]
-  → renders Flowers view (D3 radial SVG, zoom, drag, hover overlay)
-  → stub: 2×2 view toggle exists but renders placeholder
-```
-
-### Tech Stack
-- **Frontend**: React 19 + D3 v7, Vite (no Socket.io, no audio)
-- **Backend**: Node.js, Express 5, Anthropic SDK
-- **Data source**: Cortico Researcher API (`/v1/catalogs/:id`)
-- **AI**: Claude Sonnet (`claude-sonnet-4-20250514`) — headline generation only
+Research/presentation tool for MIT Media Lab.
 
 ---
 
 ## Running Locally
 
 ```bash
-# Terminal 1 — server
+# Terminal 1 — API server (port 3001)
 cd server && node server.js
 
-# Terminal 2 — client
+# Terminal 2 — Vite dev server (port 5173, proxies /api → 3001)
 cd client && npm run dev
 ```
 
-Open `http://localhost:5173`, enter a catalog ID (e.g. `1208`), hit LOAD.
+Open `http://localhost:5173`, enter catalog ID `1208`, hit LOAD.
 
 ---
 
-## Environment Variables (`server/.env`)
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Frontend | React 19 + D3 v7, Vite |
+| Backend | Node.js, Express, Anthropic SDK |
+| Data | Cortico Researcher API (`/v1/catalogs/:id`) |
+| AI | Claude Sonnet — headline generation + compass scoring |
+
+---
+
+## Environment (`server/.env`)
 
 ```
 ANTHROPIC_API_KEY=...
-CORTICO_API_KEY=...   # JWT token from Cortico Researcher API
+CORTICO_API_KEY=...   # current key: allow:*:* scope, only catalog 1208 accessible
 ```
-
----
-
-## Cortico API
-
-**Base URL**: `https://api.cortico.ai`
-**Auth**: Bearer token (JWT)
-**Rate limit**: 120 req/min
-
-### Key endpoint used
-```
-GET /v1/catalogs/:id
-```
-Returns a catalog object with `catalog_entries` embedded (up to 660+ entries).
-
-### Catalog entry shape
-```js
-{
-  id: number,
-  primary_participant_name: string,   // speaker
-  highlight: {
-    id: number,
-    conversation_id: number,
-    audio_start_offset: number,
-    snippets: [{
-      speaker_name: string,
-      words: [{ word, start, end, confidence }],  // reconstruct text by joining words
-    }]
-  },
-  codes: [
-    { code_type: "structural", id, name, description },  // → which question
-    { code_type: "thematic",   id, name, description },  // → topic tags (NOT used as headlines)
-  ]
-}
-```
-
-### Important: structural codes = questions
-`code_type: "structural"` entries map each highlight to a facilitator question. `name` is the short form, `description` is the full question text. These become the question nodes.
-
-### Thematic codes are NOT tile headlines
-Thematic codes (e.g. "Better focus & grades") are broad repeated tags, not specific to individual excerpts. Claude generates tile headlines from the raw spoken text instead.
-
----
-
-## Data Model (server → client)
-
-```js
-// Server response shape
-{
-  catalogId: number,
-  title: string,
-  questions: [{ id: "q{code_id}", text: string, fullText: string }],
-  tiles: [{
-    id: "h{highlight_id}",
-    speakerName: string,
-    speakerColor: string,    // from SPEAKER_PALETTE, assigned in order of first appearance
-    headline: string,        // Claude-generated verbatim quote or tight descriptive
-    text: string,            // full reconstructed spoken text (for hover overlay)
-    questionId: string,      // which question node this belongs to
-    audioStartOffset: number,
-    conversationId: number,
-  }],
-  speakers: [{ name, color }]
-}
-
-// Client maps tiles to D3 shape:
-{ id, qId, sp, color, sum (=headline), transcript (=text) }
-```
-
----
-
-## Claude Prompt (headline generation)
-
-Batches of 20 highlights sent per request. Key rules:
-- **Verbatim quote** (strongly preferred): most vivid phrase, exactly as spoken, in quotation marks, 4–10 words
-- **Descriptive** (last resort): 4–7 words, no quotes, no first-person pronouns
-- Must be specific to the excerpt — never a generic topic label
-- Returns JSON array of strings
-
----
-
-## Visualization Design
-
-### Flowers layout
-- Questions on a ring (radius 950px from world origin)
-- Responses orbit each question in full 360° rings (6 per ring, overflow to outer ring)
-- Positions are deterministic — no force simulation
-- D3 zoom on inner `<g>`, world origin = (0,0), initial transform centers it
-- Clicking a question button in the nav bar triggers a smooth zoom-to-focus (3.8s ease)
-- Nodes: blur-dissolve in over 3.2s, edges draw in over 2.4s
-- Nodes are draggable; edges update live
-
-### Visual style
-- Background: `#050508`
-- Question nodes: dark fill, "QUESTION" label, serif body text (Hedvig Letters Serif)
-- Response nodes: pastel fill derived from speaker color, sans-serif text (Hedvig Letters Sans)
-- Text color on tiles: `richDark()` — derives a dark hue-matched color from the pastel
-- Hover: transcript overlay, semi-transparent dark bg, speaker-colored border
 
 ---
 
 ## File Structure
 
 ```
-client/
-  src/
-    App.jsx       Main component — all D3 rendering and UI (~330 lines)
-    data.js       SPEAKER_PALETTE constant only
-    main.jsx      React entry point
-    index.css     Minimal global styles
-  public/
-    audio-worklet-processor.js  (vestige — safe to delete)
-  index.html
+client/src/
+  App.jsx         All UI + D3 — single component (~880 lines)
+  data.js         SPEAKER_PALETTE (unused in compass view)
 
 server/
-  server.js       Express server — Cortico fetch + Claude batch (~120 lines)
-  package.json
-  .env            ANTHROPIC_API_KEY, CORTICO_API_KEY
-
-scripts/          (vestige of real-time era — safe to delete)
+  server.js       Express — Cortico fetch, Claude headline batching, catalog cache
+  rescore-compass.js  Re-scores compassX/Y for all tiles via Claude. Run: node rescore-compass.js [--dry-run]
+  cache/1208.json Pre-baked catalog cache (516 tiles). DO NOT DELETE — rebaking costs ~$0.25.
+  cache/1208.backup-*.json  Backups from rescore runs (safe to delete).
+  .env
 ```
 
 ---
 
-## What's Built vs. What's Next
+## Cache Schema (`server/cache/1208.json`)
 
-### Built ✅
-- Cortico catalog ingestion (`GET /v1/catalogs/:id`)
-- Claude headline generation (batched, parallel, with fallback)
-- Flowers visualization (questions + tiles, zoom, drag, hover)
-- Speaker color assignment
-- Question nav bar (click to zoom-focus)
-- View toggle (Flowers / 2×2)
-- Audio playback: click any tile to play its original Cortico highlight audio clip; click again to stop. Server proxies audio via `GET /api/audio/highlight/:id` (keeps API key server-side). Playing tile gets a speaker-colored border ring.
+```js
+{
+  catalogId, title, questions, speakers,
+  tiles: [{
+    id,               // "h{highlight_id}"
+    speakerName,
+    speakerColor,
+    text,             // full transcript
+    questionId,       // "q{code_id}"
+    headline,         // Claude-generated verbatim quote or tight descriptive
+    themeCode,
+    themeCodes,
+    themeCluster,     // "Learning" | "Safety" | "Wellbeing" | "Autonomy" | "Community" | "Policy" | "Other"
+    themeColor,       // stored but NOT used — frontend derives color from CLUSTER_COLORS[themeCluster]
+    compassX,         // float in [-1, 1] — Phone as distraction ↔ lifeline
+    compassY,         // float in [-1, 1] — Experience ↔ Claim
+    audioStartOffset,
+    conversationId,
+  }]
+}
+```
 
-### Next 🔨
-- **2×2 view**: axes TBD by user. The data is already loaded in `tiles` — just needs a scatter layout renderer in `App.jsx` when `mode === "2x2"`. Each axis will be a scored dimension per tile (score generation via Claude or manual coding).
-- **Animation bug**: mock playback ticked nodes in one at a time (now irrelevant since mock mode is removed). The Flowers view currently reveals all tiles at once on load — could add a staged reveal if desired.
-- **Catalog access**: conversation 8596 (AI ethics, CCNY/FRONTLINE) returns 404 from the current API key. The key's org scope covers catalogs like 1208. A new key with access to the target org/collection would unlock it.
-- **Vestige cleanup**: `client/public/audio-worklet-processor.js` and `scripts/` can be deleted.
-- **Persistent caching**: server re-fetches and re-runs Claude on every load. A simple file-based or SQLite cache of `catalogId → processed result` would make repeat loads instant.
+### Compass axes
+- **X**: Phone as distraction (−1) ↔ Phone as lifeline (+1)
+- **Y**: Experience (−1) ↔ Claim (+1)
+  - Experience = speaker narrates a specific event / felt state
+  - Claim = speaker makes a general assertion about what should be true
+- Scored by `rescore-compass.js` using Claude with calibration anchors. Never re-score without it.
 
 ---
 
-## Known Issues / Decisions
+## Cluster Colors (canonical — CLUSTER_COLORS in App.jsx)
 
-1. **Catalog limit capped at 120**: `server.js` slices to 120 entries by default (`?limit=N` overrides). Full 660-entry catalogs work but take ~30–45s due to Claude batching. Tune as needed.
-2. **Speaker names may be pseudonymous**: Cortico anonymizes some participants (e.g. "T", "Student A"). Headlines and hover text still work fine.
-3. **No question-to-question ordering**: Questions are displayed in the order they appear in structural codes, not the order they were asked. The Cortico API doesn't expose question sequence directly.
-4. **`cors` was previously an undeclared dep**: now explicit in `server/package.json`.
+```
+Learning:  #65ABF0
+Safety:    #FF5F1F
+Wellbeing: #F392D1
+Autonomy:  #B167CD
+Community: #54A96D
+Policy:    #E3A023
+Other:     #BFA99F
+```
+
+Color is always derived client-side from `CLUSTER_COLORS[t.themeCluster]`. The `themeColor` field in the cache is ignored.
+
+---
+
+## Current UI State
+
+**Only the compass view is active.** Flowers, Bubbles, and Cards views have preserved code but are hidden (`view` is hardcoded to `"compass"`).
+
+### Compass view
+- Pure white background (`#ffffff`), **Libre Baskerville** throughout (Google Fonts, loaded in `client/index.html`)
+- 516 dots, r=6px, colored by `themeCluster`, forceCollide layout. Flat colors, no stroke.
+- **Axis lines**: 1px, `vector-effect: non-scaling-stroke` (stays 1px at all zoom levels)
+- **Axis pills**: React `<div>` elements tracking zoom transform (clamped to viewport), 20px margins, 13px black
+- **Quadrant exemplars**: Fixed in viewport corners, 20px margins, 15px italic Libre Baskerville, 50% opacity
+  - Fade to 0 opacity (0.35s ease-out) as soon as zoom > 1 (k > 1). Fade back in when returning to default.
+  - NW: "Rules help / everyone focus"
+  - NE: "Phones are / structurally essential"
+  - SW: "Honestly, I / get pulled by it"
+  - SE: "My family / needed me"
+- **Zoom**: scaleExtent [1, 6] — cannot zoom out past default. translateExtent locks to data bounds.
+- **P key**: smooth animated reset to default zoom/pan (700ms cubic ease).
+- **Quote modal**: Fixed bottom-center (`bottom: 68px`), always mounted, opacity-transitions in/out. Shows on hover. 16px quote text, 13px speaker name.
+
+### Interaction model
+| Action | Effect |
+|---|---|
+| Hover node | Scale up (r → 10), show quote modal — no opacity change, no audio |
+| Mouse off | Scale back (r → 6), hide quote modal |
+| Click node | Fade all other nodes to 12% opacity (no blur) + play audio / pause toggle |
+| Click different node | Shift fade to new selection, play new audio |
+| Click background | Stop audio, unfade all nodes |
+| Press P | Smooth animated zoom reset to default view |
+
+### Audio
+- Proxied server-side: `GET /api/audio/highlight/:id` → Cortico audio
+- Functions in App.jsx: `startAudio`, `stopAudio`, `clickAudio`
+- `playingIdRef` tracks current audio id synchronously; `playingId` state drives renders
+
+---
+
+## Known Issues
+
+1. **~20 tiles (batch 18)** have raw transcript text as headline instead of a generated headline — artifact of a Claude batch failure during the original bake. Low priority.
+2. **All changes are uncommitted.** Last commit (`b5b4eff`) predates the compass view, rescore script, and all UI work from this session.
+
+---
+
+## Potential Next Steps
+
+- **Commit current work** — everything since b5b4eff is uncommitted
+- **Re-enable other views** (Flowers, Bubbles, Cards) with the current light theme + Libre Baskerville
+- **Speaker Portraits view** — group dots by speaker
+- **Conversation Timeline view** — dots arranged by time in conversation
+- **Search / filter** by speaker or theme cluster
+- **Re-bake batch 18** — fix the ~20 tiles with bad headlines
+- **Catalog title / session metadata** — surface in the compass UI
+- **Tab bar** — currently hidden; may return when multiple views are ready
+
+---
+
+## Design Decisions (do not revert without user input)
+
+- No legends, no tab bar currently
+- Speaker name only in hover card — not on tile
+- Dots colored by thematic cluster, not speaker
+- No re-generation of clusters with Claude — Cortico human coding is authoritative
+- Re-baking costs ~$0.25. Don't delete cache.
+- Compass scoring must use `rescore-compass.js` with calibration anchors

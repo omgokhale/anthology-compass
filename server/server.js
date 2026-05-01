@@ -69,13 +69,37 @@ function extractQuestionsAndTiles(entries) {
             audioStartOffset: h.audio_start_offset,
             conversationId: h.conversation_id,
         };
-    }).filter(t => t.text.length > 0);
+    }).filter(t => t.text.length > 0 && t.questionId !== null);
 
     return {
         questions: Object.values(questionsMap),
         rawTiles,
         speakers: Object.entries(speakerColors).map(([name, color]) => ({ name, color })),
     };
+}
+
+// ── Claude question distillation ───────────────────────────────────────────
+// Turns the full facilitator prompt text into a clean, short question.
+async function distillQuestions(questions) {
+    if (!questions.length) return questions;
+
+    const prompt = `You are distilling facilitator prompts from a recorded conversation into clean, short questions for a visualization.
+
+For each prompt below, write a direct question of 6–12 words that captures ONLY the core ask. Strip all preamble, context-setting, and filler. Always end with "?".
+
+Prompts:
+${questions.map((q, i) => `[${i}] ${q.fullText}`).join("\n\n")}
+
+Return a JSON array of strings, one per prompt in order. No other text.`;
+
+    const response = await anthropic.messages.create({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 400,
+        messages: [{ role: "user", content: prompt }],
+    });
+
+    const distilled = JSON.parse(response.content[0].text.replace(/```json\n?|```/g, "").trim());
+    return questions.map((q, i) => ({ ...q, text: distilled[i] || q.text }));
 }
 
 // ── Claude headline generation ─────────────────────────────────────────────
@@ -164,7 +188,7 @@ app.get("/api/audio/highlight/:id", async (req, res) => {
 
 app.get("/api/catalog/:id", async (req, res) => {
     const catalogId = req.params.id;
-    const limit = parseInt(req.query.limit) || 120;
+    const limit = parseInt(req.query.limit) || 1000;
     const cacheFile = path.join(CACHE_DIR, `${catalogId}.json`);
 
     // Return cached result instantly if available
@@ -179,7 +203,9 @@ app.get("/api/catalog/:id", async (req, res) => {
         const entries = (catalog.catalog_entries || []).slice(0, limit);
         console.log(`[Cortico] ${entries.length} entries (capped at ${limit})`);
 
-        const { questions, rawTiles, speakers } = extractQuestionsAndTiles(entries);
+        const { questions: rawQuestions, rawTiles, speakers } = extractQuestionsAndTiles(entries);
+        console.log(`[Claude] Distilling ${rawQuestions.length} questions…`);
+        const questions = await distillQuestions(rawQuestions);
         console.log(`[Claude] Generating headlines for ${rawTiles.length} tiles…`);
 
         const tiles = await generateAllHeadlines(rawTiles);

@@ -34,3 +34,6 @@ build/
 
 # Claude
 .claude/
+
+# Cache backups
+server/cache/*.backup-*.json
