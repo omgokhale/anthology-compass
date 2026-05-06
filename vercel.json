@@ -4,7 +4,6 @@
   "functions": {
     "api/catalog/[id].js": {
       "includeFiles": "server/cache/**"
-    },
-    "api/audio/highlight/[id].js": {}
+    }
   }
 }
