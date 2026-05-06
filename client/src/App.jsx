@@ -32,21 +32,26 @@ const EXEMPLARS = [
 ];
 
 // ── Compass color — bilinear blend across 4 quadrant corners ─────────────────
-const COMPASS_CORNERS = {
-    NW: [101, 171, 240],  // #65ABF0 soft blue      (distraction + claim)
-    NE: [177, 103, 205],  // #B167CD soft purple    (lifeline + claim)
-    SW: [243, 146, 209],  // #F392D1 soft pink      (distraction + experience)
-    SE: [ 84, 169, 109],  // #54A96D sage green     (lifeline + experience)
-};
+const COMPASS_CORNERS = [
+    [ 65, 140, 230],  // NW — richer blue    (distraction + claim)
+    [155,  72, 210],  // NE — richer purple  (lifeline + claim)
+    [228,  85, 185],  // SW — richer pink    (distraction + experience)
+    [ 45, 158,  80],  // SE — richer green   (lifeline + experience)
+];
 
 function compassColor(cx, cy) {
     const nx = Math.max(0, Math.min(1, (cx + 1) / 2));
     const ny = Math.max(0, Math.min(1, (cy + 1) / 2));
+    // Bilinear weights, then raised to a power so corner hues dominate more strongly
+    const raw = [
+        (1 - nx) * (1 - ny),
+        nx       * (1 - ny),
+        (1 - nx) * ny,
+        nx       * ny,
+    ].map(w => Math.pow(w, 1.8));
+    const sum = raw.reduce((a, b) => a + b, 0);
     const [r, g, b] = [0, 1, 2].map(i =>
-        COMPASS_CORNERS.NW[i] * (1 - nx) * (1 - ny) +
-        COMPASS_CORNERS.NE[i] *      nx  * (1 - ny) +
-        COMPASS_CORNERS.SW[i] * (1 - nx) *      ny  +
-        COMPASS_CORNERS.SE[i] *      nx  *      ny
+        raw.reduce((acc, w, j) => acc + COMPASS_CORNERS[j][i] * w / sum, 0)
     );
     return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
 }
