@@ -31,6 +31,26 @@ const EXEMPLARS = [
     { lines: ["My family",   "needed me"],              corner: { bottom: 20, right: 20 }, align: "right" },
 ];
 
+// ── Compass color — bilinear blend across 4 quadrant corners ─────────────────
+const COMPASS_CORNERS = {
+    NW: [101, 171, 240],  // #65ABF0 soft blue      (distraction + claim)
+    NE: [177, 103, 205],  // #B167CD soft purple    (lifeline + claim)
+    SW: [243, 146, 209],  // #F392D1 soft pink      (distraction + experience)
+    SE: [ 84, 169, 109],  // #54A96D sage green     (lifeline + experience)
+};
+
+function compassColor(cx, cy) {
+    const nx = Math.max(0, Math.min(1, (cx + 1) / 2));
+    const ny = Math.max(0, Math.min(1, (cy + 1) / 2));
+    const [r, g, b] = [0, 1, 2].map(i =>
+        COMPASS_CORNERS.NW[i] * (1 - nx) * (1 - ny) +
+        COMPASS_CORNERS.NE[i] *      nx  * (1 - ny) +
+        COMPASS_CORNERS.SW[i] * (1 - nx) *      ny  +
+        COMPASS_CORNERS.SE[i] *      nx  *      ny
+    );
+    return `rgb(${Math.round(r)},${Math.round(g)},${Math.round(b)})`;
+}
+
 // ── Constants ────────────────────────────────────────────────────────────────
 const BG = "#ffffff";
 const Q_COLOR = "#1a1a1a";
@@ -280,7 +300,7 @@ export default function ConversationBloom() {
                 id: t.id,
                 qId: t.questionId,
                 sp: t.speakerName,
-                color: CLUSTER_COLORS[t.themeCluster] || CLUSTER_COLORS.Other,
+                color: compassColor(t.compassX ?? 0, t.compassY ?? 0),
                 themeCluster: t.themeCluster || "Other",
                 compassX: t.compassX ?? 0,
                 compassY: t.compassY ?? 0,
