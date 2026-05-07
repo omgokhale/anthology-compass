@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import * as d3 from "d3";
 
@@ -24,13 +24,11 @@ const CLUSTER_LABELS = {
 
 function exportPng(svgEl) {
     const clone = svgEl.cloneNode(true);
-    // Embed white background
     const bg = document.createElementNS("http://www.w3.org/2000/svg", "rect");
     bg.setAttribute("width", svgEl.getAttribute("width"));
     bg.setAttribute("height", svgEl.getAttribute("height"));
     bg.setAttribute("fill", "#ffffff");
     clone.insertBefore(bg, clone.firstChild);
-
     const xml = new XMLSerializer().serializeToString(clone);
     const blob = new Blob([xml], { type: "image/svg+xml" });
     const url = URL.createObjectURL(blob);
@@ -52,8 +50,37 @@ function exportPng(svgEl) {
     img.src = url;
 }
 
+function TileGrid({ cluster, tiles, onClose }) {
+    const color = CLUSTER_COLORS[cluster] || CLUSTER_COLORS.Other;
+    const label = CLUSTER_LABELS[cluster] || cluster;
+    return (
+        <div
+            onClick={onClose}
+            style={{ position: "fixed", inset: 0, background: "rgba(255,255,255,0.92)", overflowY: "auto", zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 24px" }}
+        >
+            <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 860 }}>
+                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 32 }}>
+                    <span style={{ fontSize: 18, fontFamily: "Libre Baskerville, serif", color: "#1a1a1a" }}>{label}</span>
+                    <span style={{ fontSize: 13, fontFamily: "Libre Baskerville, serif", color: "rgba(0,0,0,0.35)", cursor: "pointer" }} onClick={onClose}>close</span>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+                    {tiles.map(t => (
+                        <div key={t.id} style={{ borderLeft: `3px solid ${color}`, padding: "10px 14px", background: "rgba(0,0,0,0.02)", borderRadius: "0 4px 4px 0" }}>
+                            <div style={{ fontSize: 13, fontFamily: "Libre Baskerville, serif", color: "#1a1a1a", lineHeight: 1.5, marginBottom: 6 }}>{t.headline}</div>
+                            <div style={{ fontSize: 11, fontFamily: "Libre Baskerville, serif", color: "rgba(0,0,0,0.38)" }}>{t.speakerName}</div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </div>
+    );
+}
+
 function BarChart() {
     const svgRef = useRef();
+    const [rows, setRows] = useState([]);
+    const [tilesByCluster, setTilesByCluster] = useState({});
+    const [selected, setSelected] = useState(null);
 
     useEffect(() => {
         async function draw() {
@@ -61,36 +88,37 @@ function BarChart() {
             const data = await res.json();
 
             const counts = {};
+            const byCluster = {};
             data.tiles
                 .filter(t => t.relevant !== false)
                 .forEach(t => {
                     const k = t.themeCluster || "Other";
                     counts[k] = (counts[k] || 0) + 1;
+                    (byCluster[k] = byCluster[k] || []).push(t);
                 });
 
-            const rows = Object.entries(counts)
-                .map(([key, count]) => ({
-                    key,
-                    label: CLUSTER_LABELS[key] || key,
-                    count,
-                    color: CLUSTER_COLORS[key] || CLUSTER_COLORS.Other,
-                }))
+            setTilesByCluster(byCluster);
+
+            const sorted = Object.entries(counts)
+                .map(([key, count]) => ({ key, label: CLUSTER_LABELS[key] || key, count, color: CLUSTER_COLORS[key] || CLUSTER_COLORS.Other }))
                 .sort((a, b) => b.count - a.count);
+
+            setRows(sorted);
 
             const W = Math.min(560, window.innerWidth - 48);
             const BAR_H = 34, GAP = 12;
             const LABEL_W = 148, PAD_R = 44;
-            const H = rows.length * (BAR_H + GAP) - GAP;
+            const H = sorted.length * (BAR_H + GAP) - GAP;
             const barW = W - LABEL_W - PAD_R;
-            const x = d3.scaleLinear().domain([0, d3.max(rows, d => d.count)]).range([0, barW]);
+            const x = d3.scaleLinear().domain([0, d3.max(sorted, d => d.count)]).range([0, barW]);
 
-            const svg = d3.select(svgRef.current)
-                .attr("width", W)
-                .attr("height", H);
+            const svg = d3.select(svgRef.current).attr("width", W).attr("height", H);
 
             const g = svg.selectAll("g.row")
-                .data(rows).join("g").attr("class", "row")
-                .attr("transform", (_, i) => `translate(0,${i * (BAR_H + GAP)})`);
+                .data(sorted).join("g").attr("class", "row")
+                .attr("transform", (_, i) => `translate(0,${i * (BAR_H + GAP)})`)
+                .style("cursor", "pointer")
+                .on("click", (_, d) => setSelected(d.key));
 
             g.append("text")
                 .attr("x", LABEL_W - 12).attr("y", BAR_H / 2)
@@ -126,10 +154,17 @@ function BarChart() {
             <svg ref={svgRef} />
             <button
                 onClick={() => exportPng(svgRef.current)}
-                style={{ background: "none", border: "1px solid rgba(0,0,0,0.15)", borderRadius: 6, padding: "7px 18px", fontSize: 11, letterSpacing: 3, textTransform: "uppercase", cursor: "pointer", fontFamily: "Libre Baskerville, serif", color: "#1a1a1a" }}
+                style={{ background: "none", border: "none", padding: 0, fontSize: 13, cursor: "pointer", fontFamily: "Libre Baskerville, serif", color: "rgba(0,0,0,0.35)" }}
             >
                 Export PNG
             </button>
+            {selected && (
+                <TileGrid
+                    cluster={selected}
+                    tiles={tilesByCluster[selected] || []}
+                    onClose={() => setSelected(null)}
+                />
+            )}
         </div>
     );
 }
