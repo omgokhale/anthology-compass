@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import * as d3 from "d3";
-import { ChartBar, ChartScatter, DownloadSimple } from "@phosphor-icons/react";
+import { ChartBar, ChartScatter, DownloadSimple, Play, Pause } from "@phosphor-icons/react";
 
 const CLUSTER_COLORS = {
     Learning:  "#65ABF0",
@@ -22,6 +22,26 @@ const CLUSTER_LABELS = {
     Policy:    "Policy Design",
     Other:     "Other",
 };
+
+function clickAudio(id, audioRef, playingIdRef, setPlayingId) {
+    if (playingIdRef.current === id && audioRef.current) {
+        if (audioRef.current.paused) {
+            audioRef.current.play().catch(() => {});
+            setPlayingId(id);
+        } else {
+            audioRef.current.pause();
+            setPlayingId(null);
+        }
+        return;
+    }
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ""; }
+    const audio = new Audio(`/api/audio/highlight/${id.slice(1)}`);
+    audioRef.current = audio;
+    playingIdRef.current = id;
+    setPlayingId(id);
+    audio.play().catch(() => {});
+    audio.onended = () => { playingIdRef.current = null; setPlayingId(null); };
+}
 
 function exportPng(svgEl) {
     const clone = svgEl.cloneNode(true);
@@ -93,12 +113,26 @@ function drawBar(svgEl, rows, onSelect) {
         .attr("opacity", 1);
 }
 
+function labelLines(label, r, fontSize) {
+    const charW = fontSize * 0.58;
+    if (label.length * charW <= r * 1.5) return [label];
+    const words = label.split(' ');
+    if (words.length < 2) return [label];
+    let best = { diff: Infinity, idx: 1 };
+    for (let i = 1; i < words.length; i++) {
+        const diff = Math.abs(words.slice(0, i).join(' ').length - words.slice(i).join(' ').length);
+        if (diff < best.diff) best = { diff, idx: i };
+    }
+    return [words.slice(0, best.idx).join(' '), words.slice(best.idx).join(' ')];
+}
+
 function drawBubble(svgEl, rows, onSelect) {
     const S = Math.min(460, window.innerHeight - 120, window.innerWidth - 460);
     const pack = d3.pack().size([S, S]).padding(6);
     const root = pack(d3.hierarchy({ children: rows }).sum(d => d.count));
 
-    const svg = d3.select(svgEl).attr("width", S).attr("height", S);
+    const svg = d3.select(svgEl).attr("width", S).attr("height", S)
+        .style("overflow", "visible");
     svg.selectAll("*").remove();
 
     const node = svg.selectAll("g.bubble")
@@ -115,33 +149,71 @@ function drawBubble(svgEl, rows, onSelect) {
         .delay((_, i) => i * 50)
         .attr("r", d => d.r);
 
-    // Label — only if circle is large enough
-    node.filter(d => d.r > 38)
-        .append("text")
-        .attr("text-anchor", "middle").attr("dominant-baseline", "middle")
-        .attr("fill", "#fff").attr("font-size", d => Math.min(12, d.r / 3.5))
-        .style("font-family", "Libre Baskerville, serif")
-        .attr("y", -8)
-        .attr("opacity", 0)
-        .text(d => d.data.label)
-        .transition().delay((_, i) => i * 50 + 400).duration(200)
-        .attr("opacity", 1);
+    const LABEL_THRESHOLD = 42;
 
-    node.filter(d => d.r > 24)
-        .append("text")
-        .attr("text-anchor", "middle").attr("dominant-baseline", "middle")
-        .attr("fill", "#fff").attr("font-size", d => Math.min(13, d.r / 3))
-        .style("font-family", "Libre Baskerville, serif")
-        .attr("y", d => d.r > 38 ? 10 : 0)
-        .attr("opacity", 0)
-        .text(d => d.data.count)
-        .transition().delay((_, i) => i * 50 + 400).duration(200)
-        .attr("opacity", 1);
+    // Inside labels — large bubbles only, with word-wrap
+    node.filter(d => d.r > LABEL_THRESHOLD).each(function(d, i) {
+        const g = d3.select(this);
+        const labelSize = Math.min(12, d.r / 3.5);
+        const lines = labelLines(d.data.label, d.r, labelSize);
+        const lh = labelSize * 1.3;
+        const sep = 16; // gap between last label line and count
+        const countY = sep / 2 + (lines.length - 1) * lh / 2;
+        const startY = -countY;
+
+        const labelText = g.append("text")
+            .attr("text-anchor", "middle").attr("dominant-baseline", "middle")
+            .attr("fill", "#fff").attr("font-size", labelSize)
+            .style("font-family", "Libre Baskerville, serif")
+            .attr("opacity", 0);
+
+        lines.forEach((line, li) => {
+            labelText.append("tspan").attr("x", 0).attr("y", startY + li * lh).text(line);
+        });
+
+        g.append("text")
+            .attr("text-anchor", "middle").attr("dominant-baseline", "middle")
+            .attr("fill", "#fff").attr("font-size", Math.min(13, d.r / 3))
+            .style("font-family", "Libre Baskerville, serif")
+            .attr("y", countY).attr("opacity", 0)
+            .text(d.data.count)
+            .transition().delay(i * 50 + 400).duration(200).attr("opacity", 1);
+
+        labelText.transition().delay(i * 50 + 400).duration(200).attr("opacity", 1);
+    });
+
+    // Outside labels — small bubbles, connected by a thin line
+    node.filter(d => d.r <= LABEL_THRESHOLD).each(function(d) {
+        const g = d3.select(this);
+        const angle = Math.atan2(d.y - S / 2, d.x - S / 2);
+        const lineEnd = d.r + 18;
+        const textDist = lineEnd + 5;
+        const anchor = Math.cos(angle) >= 0 ? "start" : "end";
+
+        g.append("line")
+            .attr("x1", Math.cos(angle) * (d.r + 2))
+            .attr("y1", Math.sin(angle) * (d.r + 2))
+            .attr("x2", Math.cos(angle) * lineEnd)
+            .attr("y2", Math.sin(angle) * lineEnd)
+            .attr("stroke", "rgba(0,0,0,0.2)").attr("stroke-width", 0.75)
+            .attr("opacity", 0)
+            .transition().delay(400).duration(200).attr("opacity", 1);
+
+        g.append("text")
+            .attr("x", Math.cos(angle) * textDist)
+            .attr("y", Math.sin(angle) * textDist)
+            .attr("text-anchor", anchor).attr("dominant-baseline", "middle")
+            .attr("fill", "#1a1a1a").attr("font-size", 11)
+            .style("font-family", "Libre Baskerville, serif")
+            .attr("opacity", 0)
+            .text(d.data.label)
+            .transition().delay(400).duration(200).attr("opacity", 1);
+    });
 }
 
 const PANEL_W = 360;
 
-function TilePanel({ cluster, tiles, color }) {
+function TilePanel({ cluster, tiles, color, playingId, onAudioClick }) {
     const ref = useRef();
     useEffect(() => { ref.current?.scrollTo(0, 0); }, [cluster]);
     return (
@@ -168,9 +240,25 @@ function TilePanel({ cluster, tiles, color }) {
                     }}>
                         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                             <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
-                            <div style={{ color: "#000", fontSize: 13, fontStyle: "italic", fontFamily: "Libre Baskerville, serif" }}>
+                            <div style={{ color: "#000", fontSize: 13, fontStyle: "italic", fontFamily: "Libre Baskerville, serif", flex: 1 }}>
                                 {t.speakerName}
                             </div>
+                            {t.id && (
+                                <button
+                                    onClick={() => onAudioClick(t.id)}
+                                    style={{
+                                        background: "none", border: "none", padding: 0, cursor: "pointer",
+                                        color: playingId === t.id ? color : "rgba(0,0,0,0.3)",
+                                        display: "flex", alignItems: "center",
+                                        transition: "color 0.15s",
+                                        flexShrink: 0,
+                                    }}
+                                >
+                                    {playingId === t.id
+                                        ? <Pause size={13} weight="fill" />
+                                        : <Play size={13} weight="fill" />}
+                                </button>
+                            )}
                         </div>
                         <div style={{ color: "#000", fontSize: 15, lineHeight: 1.65, fontFamily: "Libre Baskerville, serif" }}>
                             &ldquo;{t.text}&rdquo;
@@ -184,10 +272,13 @@ function TilePanel({ cluster, tiles, color }) {
 
 function App() {
     const svgRef = useRef();
+    const audioRef = useRef(null);
+    const playingIdRef = useRef(null);
     const [rows, setRows] = useState([]);
     const [tilesByCluster, setTilesByCluster] = useState({});
     const [selected, setSelected] = useState(null);
     const [view, setView] = useState("bar");
+    const [playingId, setPlayingId] = useState(null);
 
     useEffect(() => {
         async function load() {
@@ -214,7 +305,26 @@ function App() {
         else drawBubble(svgRef.current, rows, setSelected);
     }, [view, rows]);
 
-    const selectedColor = selected ? (CLUSTER_COLORS[selected] || CLUSTER_COLORS.Other) : null;
+    useEffect(() => {
+        if (!svgRef.current) return;
+        const svg = d3.select(svgRef.current);
+        if (view === "bar") {
+            svg.selectAll("g.row")
+                .transition().duration(200)
+                .attr("opacity", d => !selected || d.key === selected ? 1 : 0.3);
+        } else {
+            svg.selectAll("g.bubble")
+                .transition().duration(200)
+                .attr("opacity", d => !selected || d.data.key === selected ? 1 : 0.3);
+        }
+    }, [selected, view]);
+
+    useEffect(() => () => { audioRef.current?.pause(); }, []);
+
+    const lastSelected = useRef(null);
+    if (selected) lastSelected.current = selected;
+    const panelCluster = lastSelected.current;
+    const panelColor = panelCluster ? (CLUSTER_COLORS[panelCluster] || CLUSTER_COLORS.Other) : null;
 
     return (
         <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "#fff" }}>
@@ -250,18 +360,27 @@ function App() {
                     right: selected ? PANEL_W + 20 : 20,
                     cursor: "pointer",
                     color: "rgba(0,0,0,0.35)",
-                    transition: "right 0.2s ease",
+                    transition: "right 0.3s ease",
                 }}
             />
 
-            {/* Tile panel */}
-            {selected && (
-                <TilePanel
-                    cluster={selected}
-                    tiles={tilesByCluster[selected] || []}
-                    color={selectedColor}
-                />
-            )}
+            {/* Tile panel — animated slide */}
+            <div style={{
+                width: selected ? PANEL_W : 0,
+                transition: "width 0.3s ease",
+                overflow: "hidden",
+                flexShrink: 0,
+            }}>
+                {panelCluster && (
+                    <TilePanel
+                        cluster={panelCluster}
+                        tiles={tilesByCluster[panelCluster] || []}
+                        color={panelColor}
+                        playingId={playingId}
+                        onAudioClick={(id) => clickAudio(id, audioRef, playingIdRef, setPlayingId)}
+                    />
+                )}
+            </div>
         </div>
     );
 }

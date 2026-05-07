@@ -37,3 +37,4 @@ build/
 
 # Cache backups
 server/cache/*.backup-*.json
+.vercel
