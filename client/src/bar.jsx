@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import * as d3 from "d3";
-import { ChartBar, ChartScatter } from "@phosphor-icons/react";
+import { ChartBar, ChartScatter, DownloadSimple } from "@phosphor-icons/react";
 
 const CLUSTER_COLORS = {
     Learning:  "#65ABF0",
@@ -235,15 +235,24 @@ function App() {
             </div>
 
             {/* Chart */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 32, padding: "48px 32px", overflow: "hidden" }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "48px 32px", overflow: "hidden" }}>
                 <svg ref={svgRef} />
-                <button
-                    onClick={() => exportPng(svgRef.current)}
-                    style={{ background: "none", border: "none", padding: 0, fontSize: 13, cursor: "pointer", fontFamily: "Libre Baskerville, serif", color: "rgba(0,0,0,0.35)" }}
-                >
-                    Export PNG
-                </button>
             </div>
+
+            {/* Download button — bottom right, shifts left when panel open */}
+            <DownloadSimple
+                size={20}
+                weight="regular"
+                onClick={() => exportPng(svgRef.current)}
+                style={{
+                    position: "fixed",
+                    bottom: 20,
+                    right: selected ? PANEL_W + 20 : 20,
+                    cursor: "pointer",
+                    color: "rgba(0,0,0,0.35)",
+                    transition: "right 0.2s ease",
+                }}
+            />
 
             {/* Tile panel */}
             {selected && (
