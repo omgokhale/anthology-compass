@@ -53,8 +53,10 @@ function exportPng(svgEl) {
 const PANEL_W = 360;
 
 function TilePanel({ cluster, tiles, color }) {
+    const ref = useRef();
+    useEffect(() => { ref.current?.scrollTo(0, 0); }, [cluster]);
     return (
-        <div style={{
+        <div ref={ref} style={{
             width: PANEL_W,
             height: "100vh",
             borderLeft: "1px solid rgba(0,0,0,0.1)",
