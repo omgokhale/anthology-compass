@@ -56,6 +56,7 @@ function TilePanel({ cluster, tiles, color }) {
     return (
         <div style={{
             width: PANEL_W,
+            height: "100vh",
             borderLeft: "1px solid rgba(0,0,0,0.1)",
             overflowY: "auto",
             padding: "48px 28px",
@@ -163,9 +164,9 @@ function BarChart() {
     const selectedColor = selected ? (CLUSTER_COLORS[selected] || CLUSTER_COLORS.Other) : null;
 
     return (
-        <div style={{ display: "flex", minHeight: "100vh", background: "#fff" }}>
+        <div style={{ display: "flex", height: "100vh", overflow: "hidden", background: "#fff" }}>
             {/* Left: chart */}
-            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 32, padding: "48px 32px" }}>
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 32, padding: "48px 32px", overflow: "hidden" }}>
                 <svg ref={svgRef} />
                 <button
                     onClick={() => exportPng(svgRef.current)}
