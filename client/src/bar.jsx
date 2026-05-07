@@ -36,8 +36,8 @@ function exportPng(svgEl) {
     img.onload = () => {
         const canvas = document.createElement("canvas");
         const scale = 2;
-        canvas.width  = svgEl.getAttribute("width")  * scale;
-        canvas.height = svgEl.getAttribute("height") * scale;
+        canvas.width  = +svgEl.getAttribute("width")  * scale;
+        canvas.height = +svgEl.getAttribute("height") * scale;
         const ctx = canvas.getContext("2d");
         ctx.scale(scale, scale);
         ctx.drawImage(img, 0, 0);
@@ -50,27 +50,41 @@ function exportPng(svgEl) {
     img.src = url;
 }
 
-function TileGrid({ cluster, tiles, onClose }) {
-    const color = CLUSTER_COLORS[cluster] || CLUSTER_COLORS.Other;
-    const label = CLUSTER_LABELS[cluster] || cluster;
+const PANEL_W = 360;
+
+function TilePanel({ cluster, tiles, color }) {
     return (
-        <div
-            onClick={onClose}
-            style={{ position: "fixed", inset: 0, background: "rgba(255,255,255,0.92)", overflowY: "auto", zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", padding: "48px 24px" }}
-        >
-            <div onClick={e => e.stopPropagation()} style={{ width: "100%", maxWidth: 860 }}>
-                <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 32 }}>
-                    <span style={{ fontSize: 18, fontFamily: "Libre Baskerville, serif", color: "#1a1a1a" }}>{label}</span>
-                    <span style={{ fontSize: 13, fontFamily: "Libre Baskerville, serif", color: "rgba(0,0,0,0.35)", cursor: "pointer" }} onClick={onClose}>close</span>
-                </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
-                    {tiles.map(t => (
-                        <div key={t.id} style={{ borderLeft: `3px solid ${color}`, padding: "10px 14px", background: "rgba(0,0,0,0.02)", borderRadius: "0 4px 4px 0" }}>
-                            <div style={{ fontSize: 13, fontFamily: "Libre Baskerville, serif", color: "#1a1a1a", lineHeight: 1.5, marginBottom: 6 }}>{t.headline}</div>
-                            <div style={{ fontSize: 11, fontFamily: "Libre Baskerville, serif", color: "rgba(0,0,0,0.38)" }}>{t.speakerName}</div>
+        <div style={{
+            width: PANEL_W,
+            borderLeft: "1px solid rgba(0,0,0,0.1)",
+            overflowY: "auto",
+            padding: "48px 28px",
+            boxSizing: "border-box",
+            flexShrink: 0,
+        }}>
+            <div style={{ fontSize: 13, fontFamily: "Libre Baskerville, serif", color: "#1a1a1a", marginBottom: 24 }}>
+                {CLUSTER_LABELS[cluster] || cluster}
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                {tiles.map(t => (
+                    <div key={t.id} style={{
+                        background: "#ffffff",
+                        border: "1px solid rgba(0,0,0,0.1)",
+                        borderRadius: 12,
+                        padding: "16px 20px",
+                        boxShadow: "0 2px 20px rgba(0,0,0,0.07)",
+                    }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+                            <div style={{ width: 8, height: 8, borderRadius: "50%", background: color, flexShrink: 0 }} />
+                            <div style={{ color: "#000", fontSize: 13, fontStyle: "italic", fontFamily: "Libre Baskerville, serif" }}>
+                                {t.speakerName}
+                            </div>
                         </div>
-                    ))}
-                </div>
+                        <div style={{ color: "#000", fontSize: 15, lineHeight: 1.65, fontFamily: "Libre Baskerville, serif" }}>
+                            &ldquo;{t.text}&rdquo;
+                        </div>
+                    </div>
+                ))}
             </div>
         </div>
     );
@@ -78,7 +92,6 @@ function TileGrid({ cluster, tiles, onClose }) {
 
 function BarChart() {
     const svgRef = useRef();
-    const [rows, setRows] = useState([]);
     const [tilesByCluster, setTilesByCluster] = useState({});
     const [selected, setSelected] = useState(null);
 
@@ -103,9 +116,7 @@ function BarChart() {
                 .map(([key, count]) => ({ key, label: CLUSTER_LABELS[key] || key, count, color: CLUSTER_COLORS[key] || CLUSTER_COLORS.Other }))
                 .sort((a, b) => b.count - a.count);
 
-            setRows(sorted);
-
-            const W = Math.min(560, window.innerWidth - 48);
+            const W = Math.min(480, window.innerWidth - PANEL_W - 64);
             const BAR_H = 34, GAP = 12;
             const LABEL_W = 148, PAD_R = 44;
             const H = sorted.length * (BAR_H + GAP) - GAP;
@@ -118,7 +129,7 @@ function BarChart() {
                 .data(sorted).join("g").attr("class", "row")
                 .attr("transform", (_, i) => `translate(0,${i * (BAR_H + GAP)})`)
                 .style("cursor", "pointer")
-                .on("click", (_, d) => setSelected(d.key));
+                .on("click", (_, d) => setSelected(prev => prev === d.key ? null : d.key));
 
             g.append("text")
                 .attr("x", LABEL_W - 12).attr("y", BAR_H / 2)
@@ -149,20 +160,27 @@ function BarChart() {
         draw();
     }, []);
 
+    const selectedColor = selected ? (CLUSTER_COLORS[selected] || CLUSTER_COLORS.Other) : null;
+
     return (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: "#fff", gap: 32 }}>
-            <svg ref={svgRef} />
-            <button
-                onClick={() => exportPng(svgRef.current)}
-                style={{ background: "none", border: "none", padding: 0, fontSize: 13, cursor: "pointer", fontFamily: "Libre Baskerville, serif", color: "rgba(0,0,0,0.35)" }}
-            >
-                Export PNG
-            </button>
+        <div style={{ display: "flex", minHeight: "100vh", background: "#fff" }}>
+            {/* Left: chart */}
+            <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 32, padding: "48px 32px" }}>
+                <svg ref={svgRef} />
+                <button
+                    onClick={() => exportPng(svgRef.current)}
+                    style={{ background: "none", border: "none", padding: 0, fontSize: 13, cursor: "pointer", fontFamily: "Libre Baskerville, serif", color: "rgba(0,0,0,0.35)" }}
+                >
+                    Export PNG
+                </button>
+            </div>
+
+            {/* Right: tile panel */}
             {selected && (
-                <TileGrid
+                <TilePanel
                     cluster={selected}
                     tiles={tilesByCluster[selected] || []}
-                    onClose={() => setSelected(null)}
+                    color={selectedColor}
                 />
             )}
         </div>
